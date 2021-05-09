@@ -30,5 +30,5 @@ def get_range_tensor(encoder, uid_list: list):
         x, y = encoder.para_fast_enc(_uid)
         _x_list.append(torch.from_numpy(x.data()))
         _y_list.append(torch.from_numpy(y.get_bo_array()))
-    print('\n')
+    print(f'\r{len(uid_list) + 1}/{len(uid_list) + 1}')
     return torch.cat(_x_list), torch.cat(_y_list)

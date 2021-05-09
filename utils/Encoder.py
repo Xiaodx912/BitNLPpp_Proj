@@ -91,7 +91,7 @@ class OneHotEncoder(EncInterface):
     def find_word_index(self, word: str) -> int:
         return self.word_dict.get(word, -1)
 
-    def find_word_index_slow(self, word: str) -> int:
+    def __find_word_index_slow(self, word: str) -> int:
         try:
             pos = self.word_list.index(word)
             return pos
