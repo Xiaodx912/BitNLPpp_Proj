@@ -89,4 +89,4 @@ def train(path=None, e_start=0, e_size=1000, learning_rate=0.02):
 
 
 if __name__ == '__main__':
-    train_log = train(path='model/e1999_L0.0278_F0.6159_1620464928.pkl', e_start=2000, e_size=500, learning_rate=0.02)
+    train_log = train(path='model/e1999_L0.0275_F0.6169_1620659839.pkl', e_start=2000, e_size=500, learning_rate=0.02)

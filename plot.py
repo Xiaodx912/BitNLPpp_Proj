@@ -4,8 +4,8 @@ import json
 
 from matplotlib import pyplot as plt
 
-d1 = json.load(open('model/log_1620457009.json'))
-d2 = json.load(open('model/log_1620467215.json'))
+d1 = json.load(open('model/log_1620659839.json'))
+d2 = json.load(open('model/log_1620660936.json'))
 d = d1 + d2
 da = pd.DataFrame(d)
 l = []
