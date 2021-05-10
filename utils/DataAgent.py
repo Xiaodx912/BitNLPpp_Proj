@@ -23,7 +23,7 @@ class DataAgent:
             return
         self.logger.debug(f'{len(full_data)} lines total.')
         uid_matcher = re.compile(r'^199801([0-3][0-9])-(\d{2})-(\d{3})-(\d{3})/m\s+')
-        nt_matcher = re.compile(r'\[([^]]+)]nt')
+        nt_matcher = re.compile(r'\[([^\[\]]+)]nt')
         for paragraph in full_data:
             r_match = uid_matcher.match(paragraph)
             if r_match:
