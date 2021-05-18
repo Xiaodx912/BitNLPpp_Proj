@@ -3,6 +3,7 @@ import re
 from abc import ABCMeta, abstractmethod
 from collections import Counter
 
+import numpy
 import numpy as np
 from typing import Tuple
 
@@ -57,6 +58,24 @@ class BIOLabeledPara(object):
         for i in range(self.length):
             if self.label_list[i][0] == '_':
                 resp[i] = 1
+        return resp
+
+    def get_bio_label(self):  # B=2 I=1 O=0
+        resp = np.zeros(self.length, dtype=np.int64)
+        for i in range(self.length):
+            if self.label_list[i][0] == '_':
+                resp[i] = 2 if self.label_list[i][1] == 'B' else 1
+            else:
+                resp[i] = 0
+        return resp
+
+    def get_bio_array(self):
+        resp = np.zeros((self.length, 3), dtype=np.float32)
+        for i in range(self.length):
+            if self.label_list[i][0] == '_':
+                resp[i][2 if self.label_list[i][1] == 'B' else 1] = 1
+            else:
+                resp[i][0] = 1
         return resp
 
 
@@ -127,3 +146,66 @@ class OneHotEncoder(EncInterface):
             label_list.append(label)
         labeled = BIOLabeledPara(para_id, label_list)
         return encoded, labeled
+
+
+class WordEmbeddingEncoder(EncInterface):
+    def __init__(self, da: DataAgent, path='data/ctb.50d.vec'):
+        self.logger = logging.getLogger('WordEmbeddingEncoder')
+        self.logger.setLevel(logging.DEBUG)
+        self.DA = da
+        self.vec_dict = {}
+        self.zero_vec = np.zeros(50, dtype=np.float32)
+        self.logger.info(f'Init with vector file {path}...')
+        self.load_vec_from(path)
+        self.logger.info(f'{len(self.vec_dict)} words loaded in total.')
+
+    def load_vec_from(self, vec_path):
+        try:
+            self.logger.debug(f'Try loading "{vec_path}"')
+            f = open(vec_path, 'r', encoding='utf8')
+            full_data = f.read().split('\n')
+            f.close()
+            self.logger.debug('Word vector file loaded.')
+        except FileNotFoundError:
+            self.logger.error(f'"{vec_path}" not exist!')
+            return
+        for i, line in enumerate(full_data):
+            if (i + 1) % 50000 == 0 or i + 1 == len(full_data):
+                print(f'\r{i + 1}/{len(full_data)}', end='\n' if i + 1 == len(full_data) else '')
+            if len(line) == 0:
+                continue
+            vec_str = line.split()
+            vec = np.empty(50, dtype=np.float32)
+            for i in range(50):
+                vec[i] = float(vec_str[i + 1])
+            self.vec_dict[vec_str[0]] = vec
+
+    def encode(self, unique_id: str) -> np.ndarray:
+        match_result = re.match(r'^(199801[0-3][0-9]-\d{2}-\d{3}-\d{3})-(\d{4})$', unique_id)
+        assert match_result is not None
+        self.logger.debug(f'Encoding word with uid {unique_id}')
+        vec = []
+        for offset in (-1, 0, 1):
+            uid = '{}{:0>4}'.format(unique_id[:-4], int(match_result[2]) + offset)
+            resp = self.DA.get_word(uid)
+            assert resp is not None
+            word, label = resp.strip().replace('[', '').split('/', 1)
+            if label in ['0', '1']:
+                vec.append(self.zero_vec)
+            else:
+                vec.append(self.vec_dict.get(word, self.zero_vec))
+        return np.concatenate(vec, axis=0)
+
+    def para_fast_enc(self, para_id: str):
+        assert para_id_reg.match(para_id) is not None
+        para_str = self.DA.main_data[para_id]
+        para_words = para_str.split()
+        resp = np.zeros((3, len(para_words), 50), dtype=np.float32)
+        label_list = []
+        for i, word in enumerate(para_words):
+            word_str, label = word.strip().replace('[', '').split('/', 1)
+            resp[1][i] = self.vec_dict.get(word_str, self.zero_vec)
+            label_list.append(label)
+        resp[0][1:] = resp[1][:-1]
+        resp[2][:-1] = resp[1][1:]
+        return resp.swapaxes(0, 1).reshape(len(para_words), 150), BIOLabeledPara(para_id, label_list)
