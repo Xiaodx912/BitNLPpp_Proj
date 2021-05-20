@@ -191,7 +191,7 @@ class WordEmbeddingEncoder(EncInterface):
             assert resp is not None
             word, label = resp.strip().replace('[', '').split('/', 1)
             if label in ['0', '1']:
-                vec.append(self.zero_vec)
+                vec.append(self.vec_dict['</s>'])
             else:
                 vec.append(self.vec_dict.get(word, self.zero_vec))
         return np.concatenate(vec, axis=0)
@@ -204,8 +204,9 @@ class WordEmbeddingEncoder(EncInterface):
         label_list = []
         for i, word in enumerate(para_words):
             word_str, label = word.strip().replace('[', '').split('/', 1)
-            resp[1][i] = self.vec_dict.get(word_str, self.zero_vec)
+            resp[1][i] = self.vec_dict.get(word_str, self.vec_dict['-unknown-'])
             label_list.append(label)
         resp[0][1:] = resp[1][:-1]
         resp[2][:-1] = resp[1][1:]
+        resp[0][0] = resp[2][-1] = self.vec_dict['</s>']
         return resp.swapaxes(0, 1).reshape(len(para_words), 150), BIOLabeledPara(para_id, label_list)
