@@ -149,7 +149,7 @@ class OneHotEncoder(EncInterface):
 
 
 class WordEmbeddingEncoder(EncInterface):
-    def __init__(self, da: DataAgent, path='data/ctb.50d.vec'):
+    def __init__(self, da: DataAgent, path='data/ctb.50d.vec', mode='linear'):
         self.logger = logging.getLogger('WordEmbeddingEncoder')
         self.logger.setLevel(logging.DEBUG)
         self.DA = da
@@ -157,7 +157,13 @@ class WordEmbeddingEncoder(EncInterface):
         self.zero_vec = np.zeros(50, dtype=np.float32)
         self.logger.info(f'Init with vector file {path}...')
         self.load_vec_from(path)
-        self.logger.info(f'{len(self.vec_dict)} words loaded in total.')
+        self.logger.info(f'{len(self.vec_dict)} word vectors loaded in total.')
+        self.mode = mode
+        if self.mode == 'lstm':
+            self.logger.info(f'Making word alphabet for RNN...')
+            self.alphabet = {}
+            self.gen_word_alphabet()
+            self.logger.info(f'Alphabet size: {len(self.alphabet)}')
 
     def load_vec_from(self, vec_path):
         try:
@@ -210,3 +216,17 @@ class WordEmbeddingEncoder(EncInterface):
         resp[2][:-1] = resp[1][1:]
         resp[0][0] = resp[2][-1] = self.vec_dict['</s>']
         return resp.swapaxes(0, 1).reshape(len(para_words), 150), BIOLabeledPara(para_id, label_list)
+
+    def gen_word_alphabet(self):
+        full_list = ' '.join(self.DA.full()).split()
+        word_list = [i.split('/', 1)[0] for i in full_list]
+        self.logger.debug(f'{len(word_list)} words total in text.')
+        sorted_words = Counter(word_list).most_common()
+        self.logger.debug(f'{len(sorted_words)} words after removing duplicates.')
+        self.alphabet = {w[0]: i for i, w in enumerate([('__padding__', -1), ('</s>', -1)] + sorted_words)}
+
+    def make_emb_layer(self):
+        if self.mode != 'lstm' or len(self.alphabet) == 0:
+            self.logger.error(f'Word alphabet not ready, exiting.')
+            return None
+        # todo: generate embedding layer

@@ -10,6 +10,7 @@ class DataAgent:
         self.logger.setLevel(logging.DEBUG)
         self.logger.info(f'Data Agent init with path "{data_path}"')
         self.main_data = {}
+        self.max_length = 0
         self.load_from_txt(data_path)
 
     def load_from_txt(self, txt_path):
@@ -31,6 +32,7 @@ class DataAgent:
                     nt_bio = nt_phrase.replace('/', '/_I_').replace('/_I_', '/_B_', 1)
                     paragraph = paragraph.replace(nt_phrase, nt_bio)
                 self.main_data[r_match[0][:-4]] = paragraph[23:].strip()
+                self.max_length = max(self.max_length, len(self.main_data[r_match[0][:-4]]))
         self.logger.debug(f'{len(self.main_data)} lines useful.')
 
     def range(self, l_lim, r_lim) -> List[str]:
