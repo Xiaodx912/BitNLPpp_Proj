@@ -2,43 +2,59 @@ import logging
 
 import numpy as np
 import torch
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence, PackedSequence
 
 from utils.DataAgent import DataAgent
 from utils.Encoder import WordEmbeddingEncoder
-
-x = [[1, 2, 0, 0], [9, 0, 0, 0], [3, 3, 4, 0], [5, 6, 7, 8]]
-lengths = [2, 1, 3, 4]
-x = torch.autograd.Variable(torch.Tensor(x))
-lengths = torch.Tensor(lengths).int()
-_, idx_sort = torch.sort(lengths, dim=0, descending=True)
-_, idx_unsort = torch.sort(idx_sort, dim=0)
-
-sorted_x = x.index_select(0, idx_sort)
-sorted_lengths = lengths.index_select(0, idx_sort)
-x_packed = torch.nn.utils.rnn.pack_padded_sequence(input=sorted_x, lengths=sorted_lengths, batch_first=True)
 
 logging.basicConfig(format='%(asctime)s - %(levelname)s[%(name)s] - %(message)s')
 logger = logging.getLogger('Main')
 logger.setLevel(logging.DEBUG)
 
 da = DataAgent()
-we = WordEmbeddingEncoder(da)
+we = WordEmbeddingEncoder(da, mode='lstm')
+
 
 class BiLSTM(torch.nn.Module):
-    def __init__(self, vocab_size, emb_size, hidden_size, out_size, dropout=0.1):
+    def __init__(self, we: WordEmbeddingEncoder, hidden_size=64, out_size=3, dropout=0.1):
         super(BiLSTM, self).__init__()
-        self.embedding = torch.nn.Embedding(vocab_size, emb_size)
-        self.lstm = torch.nn.LSTM(emb_size, hidden_size, batch_first=True, bidirectional=True)
+        self.logger = logging.getLogger('BiLSTM')
+        vocab_size = len(we.alphabet)
+        emb_size = we.zero_vec.size
+        emb_mat = we.make_emb_layer()
+        self.embedding = torch.nn.Embedding(vocab_size, emb_size, padding_idx=0)
+        if emb_mat is not None:
+            self.logger.info('Initializing embedding layer with pretrained vectors.')
+            self.embedding.weight.data.copy_(torch.from_numpy(emb_mat))
+            self.embedding.weight.requires_grad = False
+        else:
+            self.logger.warning('Embedding matrix is None, continue with random embedding layer.')
+        self.lstm = torch.nn.LSTM(emb_size, hidden_size, batch_first=True, bidirectional=True, dropout=dropout)
         self.fc = torch.nn.Linear(2 * hidden_size, out_size)
-        self.dropout = torch.nn.Dropout(dropout)
 
-    def forward(self, x, lengths):  # [b,l,emb_size ]
-        emb = self.dropout(self.embedding(x))
-        emb = torch.nn.utils.rnn.pack_padded_sequence(emb, lengths, batch_first=True)
-        emb, _ = self.lstm(emb)
-        emb, _ = torch.nn.utils.rnn.pad_packed_sequence(emb, batch_first=True, padding_value=0.,
-                                                        total_length=x.shape[1])
-        scores = self.fc(emb)
+    def forward(self, x: PackedSequence):
+        x, lengths = pad_packed_sequence(x, batch_first=True)
+        x = pack_padded_sequence(self.embedding(x), lengths, batch_first=True, enforce_sorted=False)
+        x, _ = self.lstm(x)
+        x = pad_packed_sequence(x, batch_first=True)[0]
+        x = pack_padded_sequence(self.fc(x), lengths, batch_first=True, enforce_sorted=False)
+        return x
 
-        return scores
 
+net = BiLSTM(we)
+criterion = torch.nn.CrossEntropyLoss()
+optim = torch.optim.Adam(net.parameters(), lr=0.01)
+
+training_data = da.range_uid('19980101', '19980120')
+validation_data = da.range_uid('19980121', '19980125')
+test_data = da.range_uid('19980126', '19980131')
+
+epochs = 100
+batch_size = 2048
+
+for e in range(epochs):
+    net.train()
+    # todo train
+    pass
+
+# t, _ = we.batch_to_packed_idx(['19980101-01-003-001', '19980101-01-003-002'])

@@ -16,7 +16,7 @@ class DataAgent:
     def load_from_txt(self, txt_path):
         try:
             self.logger.debug(f'Try loading "{txt_path}"')
-            f = open(txt_path, 'r')
+            f = open(txt_path, 'r', encoding='gbk')
             full_data = f.read().split('\n')
             f.close()
         except FileNotFoundError:
@@ -32,7 +32,7 @@ class DataAgent:
                     nt_bio = nt_phrase.replace('/', '/_I_').replace('/_I_', '/_B_', 1)
                     paragraph = paragraph.replace(nt_phrase, nt_bio)
                 self.main_data[r_match[0][:-4]] = paragraph[23:].strip()
-                self.max_length = max(self.max_length, len(self.main_data[r_match[0][:-4]]))
+                self.max_length = max(self.max_length, len(paragraph[23:].strip().split()))
         self.logger.debug(f'{len(self.main_data)} lines useful.')
 
     def range(self, l_lim, r_lim) -> List[str]:

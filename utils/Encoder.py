@@ -1,11 +1,13 @@
 import logging
 import re
+import unicodedata
 from abc import ABCMeta, abstractmethod
 from collections import Counter
 
-import numpy
 import numpy as np
 from typing import Tuple
+import torch
+from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 from utils.DataAgent import DataAgent
 from utils.util_func import split_str_by_regex
@@ -177,7 +179,7 @@ class WordEmbeddingEncoder(EncInterface):
             return
         for i, line in enumerate(full_data):
             if (i + 1) % 50000 == 0 or i + 1 == len(full_data):
-                print(f'\r{i + 1}/{len(full_data)}', end='\n' if i + 1 == len(full_data) else '')
+                print(f'\rLine# {i + 1}/{len(full_data)}', end='\n' if i + 1 == len(full_data) else '')
             if len(line) == 0:
                 continue
             vec_str = line.split()
@@ -229,4 +231,39 @@ class WordEmbeddingEncoder(EncInterface):
         if self.mode != 'lstm' or len(self.alphabet) == 0:
             self.logger.error(f'Word alphabet not ready, exiting.')
             return None
-        # todo: generate embedding layer
+        self.logger.info('Make embedding matrix with word alphabet.')
+        emb_matrix = np.empty((len(self.alphabet), 50))
+        for word, index in self.alphabet.items():
+            emb_matrix[index] = self.vec_dict.get(word, self.vec_dict['-unknown-'])
+            if word in self.vec_dict:
+                emb_matrix[index] = self.vec_dict[word]
+            elif unicodedata.normalize('NFKC', word) in self.vec_dict:
+                emb_matrix[index] = self.vec_dict[unicodedata.normalize('NFKC', word)]
+            else:
+                emb_matrix[index] = self.vec_dict['-unknown-']
+        self.logger.info('Embedding matrix is ready.')
+        return emb_matrix
+
+    def para_to_idx(self, para_id: str):
+        assert para_id_reg.match(para_id) is not None
+        para_str = self.DA.main_data[para_id]
+        para_words = para_str.split()
+        idx = np.empty(len(para_words), dtype=np.int32)
+        label_list = []
+        for i, word in enumerate(para_words):
+            word_str, label = word.strip().replace('[', '').split('/', 1)
+            idx[i] = self.alphabet.get(word_str, 0)
+            label_list.append(label)
+        return idx, BIOLabeledPara(para_id, label_list)
+
+    def batch_to_packed_idx(self, para_batch: list[str]):
+        padded = np.zeros((len(para_batch), self.DA.max_length), dtype=np.int32)
+        length = np.empty(len(para_batch), dtype=np.int32)
+        label_pack_list = []
+        for i, para in enumerate(para_batch):
+            idx_arr, label_pack = self.para_to_idx(para)
+            length[i] = idx_arr.size
+            padded[i][0:length[i]] = idx_arr[:]
+            label_pack_list.append(label_pack)
+        padded = torch.from_numpy(padded)
+        return pack_padded_sequence(padded, length, batch_first=True, enforce_sorted=False), label_pack_list
