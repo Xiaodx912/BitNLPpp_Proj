@@ -2,6 +2,7 @@ import re
 
 import numpy as np
 import torch
+from torch.nn.utils.rnn import pad_packed_sequence
 
 
 def flatten(a):
@@ -49,3 +50,41 @@ def calc_F1(TP, FN, FP):
     p = TP / (TP + FP)
     r = TP / (TP + FN)
     return 2 * r * p / (r + p)
+
+
+def calc_masked_result(packed_vec, bio_labels, network: torch.nn.Module,device):
+    packed_pred = network(packed_vec)
+    pred_arr = pad_packed_sequence(packed_pred, batch_first=True)[0]
+    label_arr = torch.from_numpy(np.array([label.get_bio_label(length=pred_arr.shape[1]) for label in bio_labels])).to(device)
+    # mask = (label_arr != -1)
+    mask = torch.ne(label_arr, -1)
+    label_arr = label_arr[mask]
+    pred_arr = pred_arr.masked_select(mask.unsqueeze(2).expand(-1, -1, network.fc.out_features)) \
+        .contiguous().view(-1, network.fc.out_features)
+    assert pred_arr.shape == (label_arr.shape[0], network.fc.out_features)
+    return pred_arr, label_arr
+
+
+def make_ans_eval_mat(pred, label):
+    ans_mat = np.zeros((3, 3), dtype=np.int64)
+    for ref_label in [0, 1, 2]:
+        for pred_label in [0, 1, 2]:
+            ans_mat[ref_label][pred_label] = ((label == ref_label) & (pred == pred_label)).sum()
+    return ans_mat
+
+
+def calc_tri_classification_f1(ans_mat):
+    Macro_average_F1_list = np.empty(3, dtype=np.float)
+    group_count = np.zeros(3, dtype=np.int64)
+    for label in [0, 1, 2]:
+        TP = ans_mat[label][label]
+        FN = ans_mat[label].sum() - TP
+        FP = ans_mat.swapaxes(0, 1)[label].sum() - TP
+        group_count += np.array([TP, FN, FP], dtype=np.int64)
+        Macro_average_F1_list[label] = calc_F1(TP, FN, FP)
+    TP, FN, FP = group_count.tolist()
+    Micro_average_F1 = calc_F1(TP, FN, FP)
+    tmp = np.vstack([ans_mat[0], ans_mat[1] + ans_mat[2]]).swapaxes(0, 1)
+    bo_matrix = np.vstack([tmp[0], tmp[1] + tmp[2]]).swapaxes(0, 1)
+    BO_F1 = calc_F1(bo_matrix[1][1], bo_matrix[1][0], bo_matrix[0][1])
+    return {'Mac': Macro_average_F1_list.mean(), 'Mic': Micro_average_F1, 'BO': BO_F1}

@@ -5,7 +5,7 @@ from abc import ABCMeta, abstractmethod
 from collections import Counter
 
 import numpy as np
-from typing import Tuple
+from typing import Tuple, List
 import torch
 from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
@@ -62,13 +62,15 @@ class BIOLabeledPara(object):
                 resp[i] = 1
         return resp
 
-    def get_bio_label(self):  # B=2 I=1 O=0
-        resp = np.zeros(self.length, dtype=np.int64)
+    def get_bio_label(self,length=None):  # B=2 I=1 O=0
+        resp = np.zeros(self.length if length is None else length, dtype=np.int64)
         for i in range(self.length):
             if self.label_list[i][0] == '_':
                 resp[i] = 2 if self.label_list[i][1] == 'B' else 1
             else:
                 resp[i] = 0
+        if length is not None and length>self.length :
+            resp[self.length:]=-1
         return resp
 
     def get_bio_array(self):
@@ -226,6 +228,7 @@ class WordEmbeddingEncoder(EncInterface):
         sorted_words = Counter(word_list).most_common()
         self.logger.debug(f'{len(sorted_words)} words after removing duplicates.')
         self.alphabet = {w[0]: i for i, w in enumerate([('__padding__', -1), ('</s>', -1)] + sorted_words)}
+        self.vec_dict['__padding__'] = self.zero_vec
 
     def make_emb_layer(self):
         if self.mode != 'lstm' or len(self.alphabet) == 0:
@@ -256,7 +259,7 @@ class WordEmbeddingEncoder(EncInterface):
             label_list.append(label)
         return idx, BIOLabeledPara(para_id, label_list)
 
-    def batch_to_packed_idx(self, para_batch: list[str]):
+    def batch_to_packed_idx(self, para_batch: List[str]):
         padded = np.zeros((len(para_batch), self.DA.max_length), dtype=np.int32)
         length = np.empty(len(para_batch), dtype=np.int32)
         label_pack_list = []
