@@ -54,6 +54,15 @@ batch_size = 2048
 
 for e in range(epochs):
     net.train()
+    pred_list = []
+    label_list = []
+    for b in range(int(len(training_data) / batch_size) + 1):
+        packed_vec, packed_labels = we.batch_to_packed_idx(training_data[batch_size * b:batch_size * (b + 1)])
+        mask = (packed_vec == we.vec_dict)
+        label_list.extend([label.get_bio_label() for label in packed_labels])
+        pred_list, lengths = pad_packed_sequence(net(packed_vec), batch_first=True)[0]
+        pred_list.extend(b)
+    pred_list = torch.cat(pred_list, 0)
     # todo train
     pass
 
