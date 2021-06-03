@@ -44,70 +44,77 @@ class BiLSTM(torch.nn.Module):
         return x
 
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+training_uid = da.range_uid('19980101', '19980120')
+validation_uid = da.range_uid('19980121', '19980125')
+test_uid = da.range_uid('19980126', '19980131')
 
-net = BiLSTM(we).to(device)
-criterion = torch.nn.CrossEntropyLoss()
-optim = torch.optim.Adam(net.parameters(), lr=0.05)
 
-training_data = da.range_uid('19980101', '19980120')
-validation_data = da.range_uid('19980121', '19980125')
-test_data = da.range_uid('19980126', '19980131')
+def train(para_path=None, e_start=0, e_size=500, learning_rate=0.05):
+    logger.debug(f'Torch ver: {torch.__version__}\tCUDA Accelerate: {torch.cuda.is_available()}')
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f'Using device {device}')
 
-epochs = 100
-batch_size = 2048
+    net = BiLSTM(we).to(device)
+    criterion = torch.nn.CrossEntropyLoss()
+    optim = torch.optim.Adam(net.parameters(), lr=learning_rate)
+    scheduler = torch.optim.lr_scheduler. \
+        ReduceLROnPlateau(optim, mode='min', verbose=True, patience=20, threshold_mode='rel',
+                          threshold=0.005, factor=0.8, cooldown=50, min_lr=0.005)
 
-train_data_size = 0
-for uid in training_data:
-    train_data_size += len(da.main_data[uid].split())
+    batch_size = 1024
 
-train_log = []
+    if para_path is not None:
+        logger.info(f'Loading parameter from {para_path}')
+        net.load_state_dict(torch.load(para_path))
 
-for e in range(epochs):
-    net.train()
-    # pred_list = []
-    # label_list = []
-    optim.zero_grad()
-    loss_sum = 0
-    log = {'e': e, 'LR': float(optim.state_dict()['param_groups'][0]['lr'])}
-    for batch_n in range(int(len(training_data) / batch_size) + 1):
-        packed_vec, bio_labels = we.batch_to_packed_idx(training_data[batch_size * batch_n:batch_size * (batch_n + 1)])
-        pred, label = calc_masked_result(packed_vec.to(device), bio_labels, net, device)
-        loss = criterion(pred, label)
-        loss_sum += (loss * (len(pred) / train_data_size)).to('cpu')
-        print(f'e:{e}\tb:{batch_n}\tl:{loss}')
-        log[f'b{batch_n}'] = {'loss': float(loss)}
-        loss.backward()
-        del label, pred, packed_vec, bio_labels, loss
-        torch.cuda.empty_cache()
-    optim.step()
-    # todo train
-    if True:
-        net.eval()
-        pred_list = []
-        label_list = []
-        for batch_n in range(int(len(validation_data) / batch_size) + 1):
-            packed_vec, bio_labels = we.batch_to_packed_idx(
-                validation_data[batch_size * batch_n:batch_size * (batch_n + 1)])
-            pred, label = calc_masked_result(packed_vec.to(device), bio_labels, net, device)
-            _, pred = torch.max(pred, dim=1)
-            pred_list.append(pred.to('cpu'))
-            label_list.append(label.to('cpu'))
-            del packed_vec, bio_labels, pred, label, _
-            torch.cuda.empty_cache()
-        ans_mat = make_ans_eval_mat(torch.cat(pred_list), torch.cat(label_list).to('cpu'))
-        print(ans_mat)
-        f1 = calc_tri_classification_f1(ans_mat)
-        log.update({'test_result': ans_mat.tolist(), 'loss': float(loss_sum)})
-        log.update(f1)
-        print(loss_sum, f1)
-        train_log.append(log)
-        # todo eval
-        if (e + 1) % 20 == 0:
-            torch.save(net.state_dict(), 'model/e{}_L{:.4f}_BOF{:.4f}_{}.pkl'
-                       .format(e, loss_sum, f1['BO'], int(time.time())))
+    train_data_size = 0
+    for uid in training_uid:
+        train_data_size += len(da.main_data[uid].split())
 
-f = open(f'model/log_{int(time.time())}.json', 'w')
-f.write(json.dumps(train_log))
-f.close()
+    train_log = []
 
+    for e in range(e_start, e_start + e_size):
+        net.train()
+        optim.zero_grad()
+        loss_sum = 0
+        log = {'e': e, 'LR': float(optim.state_dict()['param_groups'][0]['lr'])}
+        for b_n in range(int(len(training_uid) / batch_size) + 1):
+            packed_vec, bio_labels = we.batch_to_packed_idx(training_uid[batch_size * b_n:batch_size * (b_n + 1)])
+            pred, label = calc_masked_result(packed_vec, bio_labels, net, device)
+            loss = criterion(pred, label)
+            loss_sum += (loss * (len(pred) / train_data_size)).to('cpu')
+            log[f'b{b_n}'] = {'loss': float(loss)}
+            loss.backward()
+            '''del label, pred, packed_vec, bio_labels, loss
+            torch.cuda.empty_cache()'''
+        scheduler.step(loss_sum)
+        optim.step()
+        if True:
+            net.eval()
+            pred_list = []
+            label_list = []
+            for b_n in range(int(len(validation_uid) / batch_size) + 1):
+                packed_vec, bio_labels = we.batch_to_packed_idx(validation_uid[batch_size * b_n:batch_size * (b_n + 1)])
+                pred, label = calc_masked_result(packed_vec, bio_labels, net, device)
+                _, pred = torch.max(pred, dim=1)
+                pred_list.append(pred.to('cpu'))
+                label_list.append(label.to('cpu'))
+                '''del packed_vec, bio_labels, pred, label, _
+                torch.cuda.empty_cache()'''
+            ans_mat = make_ans_eval_mat(torch.cat(pred_list), torch.cat(label_list).to('cpu'))
+            # print(ans_mat)
+            f1 = calc_tri_classification_f1(ans_mat)
+            log.update({'test_result': ans_mat.tolist(), 'loss': float(loss_sum)})
+            log.update(f1)
+            logger.debug(f"e:{e} l:{float(loss_sum)} {str(f1)} LR:{float(optim.state_dict()['param_groups'][0]['lr'])}")
+            train_log.append(log)
+            if (e + 1) % 20 == 0:
+                torch.save(net.state_dict(), 'model/e{}_L{:.4f}_BOF{:.4f}_{}.pkl'
+                           .format(e, loss_sum, f1['BO'], int(time.time())))
+    f = open(f'model/log_{int(time.time())}.json', 'w')
+    f.write(json.dumps(train_log))
+    f.close()
+
+
+if __name__ == '__main__':
+    train()
