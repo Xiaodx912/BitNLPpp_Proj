@@ -56,7 +56,7 @@ def calc_masked_result(packed_vec, bio_labels, network: torch.nn.Module, device)
     packed_pred = network(packed_vec.to(device))
     pred_arr = pad_packed_sequence(packed_pred, batch_first=True)[0]
     label_arr = torch.tensor([label.get_bio_label(length=pred_arr.shape[1]) for label in bio_labels], device=device)
-    mask = torch.ne(label_arr, -1)  # mask = (label_arr != -1)
+    mask = torch.ne(label_arr, -1)  # “mask = (label_arr != -1)” will confuse IDE's type prediction
     label_arr = label_arr[mask]
     pred_arr = pred_arr.masked_select(mask.unsqueeze(2).expand(-1, -1, network.fc.out_features)) \
         .contiguous().view(-1, network.fc.out_features)

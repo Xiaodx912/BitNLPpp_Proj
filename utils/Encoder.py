@@ -249,6 +249,7 @@ class WordEmbeddingEncoder(EncInterface):
 
     def para_to_idx(self, para_id: str):
         assert para_id_reg.match(para_id) is not None
+        assert self.mode == 'lstm'
         para_str = self.DA.main_data[para_id]
         para_words = para_str.split()
         idx = np.empty(len(para_words), dtype=np.int32)

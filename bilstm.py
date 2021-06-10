@@ -29,7 +29,7 @@ class BiLSTM(torch.nn.Module):
         if emb_mat is not None:
             self.logger.info('Initializing embedding layer with pretrained vectors.')
             self.embedding.weight.data.copy_(torch.from_numpy(emb_mat))
-            # self.embedding.weight.requires_grad = False
+            self.embedding.weight.requires_grad = False
         else:
             self.logger.warning('Embedding matrix is None, continue with random embedding layer.')
         self.lstm = torch.nn.LSTM(emb_size, hidden_size, batch_first=True, bidirectional=True, dropout=dropout)
@@ -59,7 +59,7 @@ def train(para_path=None, e_start=0, e_size=500, learning_rate=0.05):
     optim = torch.optim.Adam(net.parameters(), lr=learning_rate)
     scheduler = torch.optim.lr_scheduler. \
         ReduceLROnPlateau(optim, mode='min', verbose=True, patience=20, threshold_mode='rel',
-                          threshold=0.005, factor=0.8, cooldown=50, min_lr=0.005)
+                          threshold=0.01, factor=0.8, cooldown=80, min_lr=0.005)
 
     batch_size = 1024
 
@@ -85,8 +85,6 @@ def train(para_path=None, e_start=0, e_size=500, learning_rate=0.05):
             loss_sum += (loss * (len(pred) / train_data_size)).to('cpu')
             log[f'b{b_n}'] = {'loss': float(loss)}
             loss.backward()
-            '''del label, pred, packed_vec, bio_labels, loss
-            torch.cuda.empty_cache()'''
         scheduler.step(loss_sum)
         optim.step()
         if True:
@@ -99,10 +97,7 @@ def train(para_path=None, e_start=0, e_size=500, learning_rate=0.05):
                 _, pred = torch.max(pred, dim=1)
                 pred_list.append(pred.to('cpu'))
                 label_list.append(label.to('cpu'))
-                '''del packed_vec, bio_labels, pred, label, _
-                torch.cuda.empty_cache()'''
             ans_mat = make_ans_eval_mat(torch.cat(pred_list), torch.cat(label_list).to('cpu'))
-            # print(ans_mat)
             f1 = calc_tri_classification_f1(ans_mat)
             log.update({'test_result': ans_mat.tolist(), 'loss': float(loss_sum)})
             log.update(f1)
@@ -117,4 +112,4 @@ def train(para_path=None, e_start=0, e_size=500, learning_rate=0.05):
 
 
 if __name__ == '__main__':
-    train()
+    train(e_size=2000)
